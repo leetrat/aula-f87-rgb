@@ -1,0 +1,9 @@
+post_install() {
+  udevadm control --reload-rules
+  udevadm trigger --subsystem-match=hidraw
+  printf '%s\n' 'Reconnect the AULA F87 Pro receiver so the udev rule applies.'
+}
+
+post_upgrade() {
+  post_install
+}

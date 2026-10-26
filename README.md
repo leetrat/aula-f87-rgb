@@ -210,6 +210,18 @@ finishes.
   the palette or per-key data; re-apply a custom colour or per-key layout after
   restoring if needed.  (The same limitation applies to the CLI.)
 
+### AUR
+
+Packaging files are in `aur/aula-f87/`.  The package installs the `aula-f87`
+and `aula-f87-gui` commands, the desktop entry, and the udev rule.  Update the
+GitHub URL in `PKGBUILD` and run `updpkgsums` if your repository or tag
+differs, then:
+
+```bash
+cd aur/aula-f87
+makepkg -si
+```
+
 ## Why this persists
 
 The wireless protocol uses 20-byte reports with report id `0x13`:
