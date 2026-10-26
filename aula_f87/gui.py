@@ -224,7 +224,88 @@ def list_profiles() -> list[tuple[Path, str]]:
     return profiles
 
 
-def save_profile(name: str) -> Path:
+def _valid_rgb(value: object) -> Optional[tuple[int, int, int]]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    channels: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int):
+            return None
+        if not 0 <= item <= 255:
+            return None
+        channels.append(item)
+    return (channels[0], channels[1], channels[2])
+
+
+def _profile_extras(data: dict[str, object]) -> dict[str, object]:
+    extras: dict[str, object] = {}
+    raw_per_key = data.get("per_key")
+    if isinstance(raw_per_key, dict):
+        per_key: dict[int, tuple[int, int, int]] = {}
+        for key, value in raw_per_key.items():
+            try:
+                index = int(key)
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= index < protocol.PER_KEY_PLANES:
+                continue
+            color = _valid_rgb(value)
+            if color is not None:
+                per_key[index] = color
+        if per_key:
+            extras["per_key"] = per_key
+    color = _valid_rgb(data.get("effect_color"))
+    if color is not None:
+        extras["effect_color"] = color
+    colorful = data.get("colorful")
+    if isinstance(colorful, bool):
+        extras["colorful"] = colorful
+    return extras
+
+
+def _profile_data(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise AulaError(f"cannot read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise AulaError(f"invalid profile JSON in {path}: {exc}") from exc
+
+    if not isinstance(data, dict) or data.get("format") != "aula-f87-config-v1":
+        raise AulaError("this is not an aula-f87-config-v1 profile")
+    if data.get("protocol") != "wireless":
+        raise AulaError("only wireless profiles can be loaded")
+    frames = data.get("frames")
+    if not isinstance(frames, list) or len(frames) != protocol.WIRELESS_CONFIG_FRAMES:
+        raise AulaError("profile does not contain 10 configuration frames")
+    return data
+
+
+def _profile_frames(data: dict[str, object]) -> list[bytes]:
+    frames = data.get("frames")
+    if not isinstance(frames, list):
+        raise AulaError("profile does not contain 10 configuration frames")
+    result: list[bytes] = []
+    for index, item in enumerate(frames):
+        if not isinstance(item, str):
+            raise AulaError(f"profile frame {index} is not a string")
+        try:
+            frame = bytes.fromhex(item)
+        except ValueError as exc:
+            raise AulaError(f"profile frame {index} is not valid hex") from exc
+        if len(frame) != 20:
+            raise AulaError(f"profile frame {index} is {len(frame)} bytes, expected 20")
+        result.append(frame)
+    return result
+
+
+def save_profile(
+    name: str,
+    *,
+    per_key: Optional[dict[int, tuple[int, int, int]]] = None,
+    effect_color: Optional[tuple[int, int, int]] = None,
+    colorful: Optional[bool] = None,
+) -> Path:
     display_name = name.strip()
     path = profile_path(display_name)
     keyboard = open_keyboard()
@@ -249,6 +330,15 @@ def save_profile(name: str) -> Path:
     finally:
         keyboard.close()
 
+    if per_key:
+        payload["per_key"] = {
+            str(index): list(color) for index, color in sorted(per_key.items())
+        }
+    if effect_color is not None:
+        payload["effect_color"] = list(effect_color)
+    if colorful is not None:
+        payload["colorful"] = bool(colorful)
+
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
@@ -259,44 +349,56 @@ def save_profile(name: str) -> Path:
 
 
 def load_profile(path: Path) -> list[bytes]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise AulaError(f"cannot read {path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise AulaError(f"invalid profile JSON in {path}: {exc}") from exc
+    return _profile_frames(_profile_data(path))
 
-    if not isinstance(data, dict) or data.get("format") != "aula-f87-config-v1":
-        raise AulaError("this is not an aula-f87-config-v1 profile")
-    if data.get("protocol") != "wireless":
-        raise AulaError("only wireless profiles can be loaded")
-    frames = data.get("frames")
-    if not isinstance(frames, list) or len(frames) != protocol.WIRELESS_CONFIG_FRAMES:
-        raise AulaError("profile does not contain 10 configuration frames")
 
-    result: list[bytes] = []
-    for index, item in enumerate(frames):
-        if not isinstance(item, str):
-            raise AulaError(f"profile frame {index} is not a string")
-        try:
-            frame = bytes.fromhex(item)
-        except ValueError as exc:
-            raise AulaError(f"profile frame {index} is not valid hex") from exc
-        if len(frame) != 20:
-            raise AulaError(f"profile frame {index} is {len(frame)} bytes, expected 20")
-        result.append(frame)
-    return result
+def profile_extras(path: Path) -> dict[str, object]:
+    return _profile_extras(_profile_data(path))
 
 
 def restore_profile(path: Path) -> dict[str, object]:
-    frames = load_profile(path)
+    data = _profile_data(path)
+    frames = _profile_frames(data)
+    extras = _profile_extras(data)
     keyboard = open_keyboard()
     try:
         if not isinstance(keyboard, WirelessKeyboard):
             raise UnsupportedSetting(
                 "profile loading is available only on the 2.4 GHz receiver"
             )
-        return keyboard.restore_config(frames)
+        summary = keyboard.restore_config(frames)
+        effect_id = int(summary.get("effect_id", 0) or 0)
+        per_key = extras.get("per_key")
+        if (
+            effect_id == protocol.CUSTOM_EFFECT
+            and isinstance(per_key, dict)
+            and per_key
+        ):
+            return keyboard.apply_per_key(per_key)
+
+        color = extras.get("effect_color")
+        colorful = bool(extras.get("colorful", summary.get("colorful", False)))
+        effect = protocol.EFFECT_BY_ID.get(effect_id)
+        brightness = summary.get("brightness")
+        speed = summary.get("speed")
+        if (
+            isinstance(color, tuple)
+            and effect is not None
+            and effect.supports_color
+            and effect_id in protocol.WIRELESS_EFFECT_IDS
+            and effect_id != protocol.CUSTOM_EFFECT
+            and not colorful
+            and isinstance(brightness, int)
+            and isinstance(speed, int)
+        ):
+            return keyboard.apply_effect(
+                effect_id=effect_id,
+                brightness=brightness,
+                speed=speed,
+                colorful=False,
+                color=color,
+            )
+        return summary
     finally:
         keyboard.close()
 
@@ -1220,9 +1322,16 @@ class AulaWindow(Adw.ApplicationWindow):
         self._run_async("Reading keyboard", read_status, self._apply_summary)
 
     def _apply_summary(self, result: object, sync_target: bool = True) -> None:
-        summary = result if isinstance(result, dict) else {}
+        summary = dict(result) if isinstance(result, dict) else {}
+        # Effect/per-key/timing writes return an effect summary without the
+        # connection metadata.  Keep the metadata from the last full status
+        # read so the wireless-only controls stay enabled afterwards.
+        if self.state.connected:
+            for key in ("protocol", "path", "vid", "pid", "device", "mode"):
+                if key not in summary and key in self.state.summary:
+                    summary[key] = self.state.summary[key]
         self.state.connected = True
-        self.state.summary = dict(summary)
+        self.state.summary = summary
 
         current_id = int(summary.get("effect_id", 0) or 0)
         if sync_target and current_id in EFFECT_CHOICES_BY_ID:
@@ -1678,9 +1787,21 @@ class AulaWindow(Adw.ApplicationWindow):
             self._do_save_profile(name)
 
     def _do_save_profile(self, name: str) -> None:
+        per_key = (
+            dict(self.state.per_key)
+            if self.state.summary.get("effect_id") == protocol.CUSTOM_EFFECT
+            else None
+        )
+        effect_color = self.state.effect_color
+        colorful = self.state.colorful
         self._run_async(
             f"Saving profile {name}",
-            lambda: save_profile(name),
+            lambda: save_profile(
+                name,
+                per_key=per_key,
+                effect_color=effect_color,
+                colorful=colorful,
+            ),
             self._profile_saved,
         )
 
@@ -1707,11 +1828,33 @@ class AulaWindow(Adw.ApplicationWindow):
         self._run_async(
             f"Loading profile {name}",
             lambda: restore_profile(path),
-            lambda result: self._profile_loaded(result, name),
+            lambda result: self._profile_loaded(result, name, path),
         )
 
-    def _profile_loaded(self, result: object, name: str) -> None:
+    def _profile_loaded(self, result: object, name: str, path: Path) -> None:
         self._apply_summary(result, sync_target=True)
+        try:
+            extras = profile_extras(path)
+        except AulaError as exc:
+            self._toast(
+                f"Loaded profile: {name}, but its extra data could not be read: {exc}",
+                timeout=7,
+            )
+            return
+        if (
+            self.state.summary.get("effect_id") == protocol.CUSTOM_EFFECT
+            and isinstance(extras.get("per_key"), dict)
+        ):
+            self.state.per_key = dict(extras["per_key"])
+        color = extras.get("effect_color")
+        if isinstance(color, tuple):
+            self.state.effect_color = color
+            self._syncing = True
+            try:
+                self.color_button.set_rgba(_rgba(color))
+            finally:
+                self._syncing = False
+        self._update_previews()
         effect = self.state.summary.get("effect", "unknown")
         self._toast(f"Loaded profile: {name} ({effect}).")
 

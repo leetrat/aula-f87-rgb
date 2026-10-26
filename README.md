@@ -205,14 +205,16 @@ finishes.
   configuration, choose it in the drop-down, then click **Load**.  **Delete**
   removes the local profile file only.
 - Profiles go to `~/aula-f87/profiles/NAME.json` by default.  Set
-  `AULA_F87_PROFILE_DIR` to use a different directory.  These are the same
-  JSON frames used by the CLI `backup` and `restore` commands.
+  `AULA_F87_PROFILE_DIR` to use a different directory.  They use the same base
+  JSON format as the CLI `backup` and `restore` commands, with optional
+  frontend-only fields for per-key and palette data.
 - Per-key colours and the palette are write-only on this keyboard.  The
   painting canvas therefore starts empty, and the preview uses the pending
   target colour rather than attempting to read the stored colour back.
-- Loading a profile restores the configuration frames, but not the palette or
-  per-key data; re-apply a custom colour or per-key layout after loading if
-  needed.  (The same limitation applies to the CLI.)
+- Frontend profiles also store the painted per-key layout and custom effect
+  colour when they are active, and re-apply them on load.  CLI backups still
+  contain only the 10 configuration frames, so they cannot restore those
+  write-only values.
 
 ### AUR
 
@@ -245,10 +247,12 @@ retain the requested effect or parameters.
 
 ## Notes and limitations
 
-- The separate palette is not readable by the known protocol.  A profile stores
-  the 10 configuration frames but not the RGB palette.  Restoring an effect
-  that uses a custom colour therefore requires re-applying that colour with
-  `static` or `effect --color`.
+- The separate palette is not readable by the known protocol.  A frontend
+  profile stores the custom colour chosen in the editor, but the keyboard
+  cannot report a palette that was set by another tool.  CLI backups contain
+  only the configuration frames, so restoring an effect that uses a custom
+  colour from a CLI backup requires re-applying that colour with `static` or
+  `effect --color`.
 - Frame 9 contains firmware-managed trailer state in addition to the
   `0x5A 0xA5` marker and is not compared byte-for-byte during restore.
 - Applying an effect uses the official write path, which sets a byte in frame 0
