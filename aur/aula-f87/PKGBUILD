@@ -1,11 +1,10 @@
-# Maintainer: zalof
-# Update the GitHub owner, tag, and checksum after publishing this repository.
+# Maintainer: leetrat
 pkgname=aula-f87
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Persistent onboard RGB control for the AULA F87 Pro (CLI and GTK frontend)'
 arch=('any')
-url='https://github.com/zalof/aula-f87'
+url='https://github.com/leetrat/aula-f87-rgb'
 license=('MIT')
 depends=('python')
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
@@ -16,21 +15,21 @@ optdepends=(
   'python-cairo: GTK frontend'
 )
 install=aula-f87.install
-source=("$pkgname-$pkgver.tar.gz::https://github.com/zalof/aula-f87/archive/refs/tags/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/leetrat/aula-f87-rgb/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-  cd "$pkgname-$pkgver"
+  cd "aula-f87-rgb-$pkgver"
   python -m build --wheel --no-isolation
 }
 
 check() {
-  cd "$pkgname-$pkgver"
+  cd "aula-f87-rgb-$pkgver"
   python -m unittest discover -s tests -q
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "aula-f87-rgb-$pkgver"
   python -m installer --destdir="$pkgdir" dist/*.whl
   install -Dm644 aula-f87.desktop "$pkgdir/usr/share/applications/aula-f87.desktop"
   install -Dm644 udev/60-aula-f87.rules "$pkgdir/usr/lib/udev/rules.d/60-aula-f87.rules"

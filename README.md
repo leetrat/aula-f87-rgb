@@ -217,9 +217,10 @@ finishes.
 ### AUR
 
 Packaging files are in `aur/aula-f87/`.  The package installs the `aula-f87`
-and `aula-f87-gui` commands, the desktop entry, and the udev rule.  Update the
-GitHub URL in `PKGBUILD` and run `updpkgsums` if your repository or tag
-differs, then:
+and `aula-f87-gui` commands, the desktop entry, and the udev rule.  It builds
+from the `v0.1.0` tag of
+[leetrat/aula-f87-rgb](https://github.com/leetrat/aula-f87-rgb).  After pushing
+that tag, run `updpkgsums` to replace the placeholder checksum, then:
 
 ```bash
 cd aur/aula-f87
