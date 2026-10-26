@@ -12,5 +12,11 @@ license = { text = "MIT" }
 [project.scripts]
 aula-f87 = "aula_f87.cli:main"
 
+[project.gui-scripts]
+aula-f87-gui = "aula_f87.gui:main"
+
+[project.optional-dependencies]
+gui = ["PyGObject>=3.42", "pycairo>=1.20"]
+
 [tool.setuptools]
 packages = ["aula_f87"]

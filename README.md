@@ -8,8 +8,8 @@ works without a host-side RGB daemon.
 
 The protocol was ported from the reverse-engineered 20-byte wireless protocol
 used by [F87 Studio for macOS](https://github.com/kmohammedsu/F87-Studio-macOS).
-The Python implementation uses only the standard library and talks directly
-to `/dev/hidraw`.
+The CLI uses only the standard library and talks directly to `/dev/hidraw`; an
+optional GTK4/libadwaita frontend is included for visual editing.
 
 ## What works
 
@@ -18,6 +18,9 @@ to `/dev/hidraw`.
 - Write hardware effects with a custom colour or the effect's spectrum mode.
 - Write persistent per-key colours (including a base colour plus overrides).
 - Turn the lighting off.
+- A native GTK4/libadwaita frontend with an animated keyboard preview, effect
+  controls, click-and-drag per-key painting, device settings, backup/restore,
+  and factory reset.
 - Set the wireless sleep timer and debounce time.
 - Back up and restore the 10 configuration frames.
 - Restore factory defaults.
@@ -54,10 +57,11 @@ Run from this directory:
 cd ~/aula-f87
 ```
 
-Optionally put the launcher on `PATH`:
+Optionally put the launchers on `PATH`:
 
 ```bash
 ln -sfn "$PWD/aula-f87" ~/.local/bin/aula-f87
+ln -sfn "$PWD/aula-f87-gui" ~/.local/bin/aula-f87-gui
 ```
 
 Then:
@@ -129,6 +133,82 @@ Other options:
   writing anything.
 - `-v` / `--verbose` prints every 20-byte control packet and its echo.
 - `--json` gives machine-readable output for scripting.
+
+## Frontend
+
+A native GTK4/libadwaita window is included.  It is a thin layer over the same
+device code as the CLI, so every action uses the onboard write/save/read-back
+path.
+
+![AULA F87 Pro frontend](docs/frontend.png)
+
+### Requirements
+
+The CLI has no third-party dependencies.  The frontend additionally needs
+PyGObject, GTK 4.10+, libadwaita 1.5+, and pycairo.  Install the distro packages
+for those libraries, for example on Arch Linux:
+
+```bash
+sudo pacman -S python-gobject gtk4 libadwaita python-cairo
+```
+
+or on Debian/Ubuntu:
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-cairo
+```
+
+The `gui` extra declares the Python packages for pip (`pip install .[gui]`); the
+distro packages above also provide the GTK and libadwaita typelibs and are
+usually easier on Linux.
+
+### Launch
+
+```bash
+./aula-f87 gui
+# or
+./aula-f87-gui
+```
+
+The optional menu launcher can be installed with:
+
+```bash
+ln -sfn "$PWD/aula-f87-gui" ~/.local/bin/aula-f87-gui
+install -Dm644 aula-f87.desktop ~/.local/share/applications/aula-f87.desktop
+```
+
+The included `.desktop` file uses `Exec=aula-f87-gui`, matching the command on
+`PATH` or the packaged installation.
+
+### What the window does
+
+- **Lighting** — choose a hardware effect, brightness, speed, spectrum or
+  custom colour, preview it on an animated 88-key layout, and save it.
+- **Per-key** — pick a colour, click or drag across keycaps, right-click to
+  erase, fill or clear the layout, and save it as custom mode.
+- **Device** — read the current effect and timing, set the wireless sleep timer
+  and debounce, back up or restore the configuration, and reset to factory
+  defaults.
+
+HID operations run on worker threads, so the preview keeps animating while a
+write is in progress.  The window refuses new operations until the previous one
+finishes.
+
+### Frontend notes
+
+- The same udev rule is required.  The frontend does not use `pkexec`; it opens
+  the existing `/dev/hidraw` device with the user's ACL.
+- If the wireless keyboard has gone to sleep while the receiver stayed
+  connected, press a key to wake the keyboard and click the refresh button in
+  the header.  The sleep timer can be changed on the Device page.
+- Backups go to `~/aula-f87/backups/aula-f87-YYYYMMDD-HHMMSS.json` by default.
+  Set `AULA_F87_BACKUP_DIR` to use a different directory.
+- Per-key colours and the palette are write-only on this keyboard.  The
+  painting canvas therefore starts empty, and the preview uses the pending
+  target colour rather than attempting to read the stored colour back.
+- Restoring the newest GUI backup restores the configuration frames, but not
+  the palette or per-key data; re-apply a custom colour or per-key layout after
+  restoring if needed.  (The same limitation applies to the CLI.)
 
 ## Why this persists
 
