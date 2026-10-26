@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aula-f87"
+version = "0.1.0"
+description = "Persistent onboard RGB control for the AULA F87 Pro on Linux"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[project.scripts]
+aula-f87 = "aula_f87.cli:main"
+
+[tool.setuptools]
+packages = ["aula_f87"]

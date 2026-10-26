@@ -1,0 +1,6 @@
+# AULA F87 Pro / Compx 2.4 GHz receiver
+#
+# This file must be processed before systemd's 73-seat-late.rules so that the
+# uaccess tag actually adds a logind ACL to the hidraw node.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="010c", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="fa09", TAG+="uaccess"
