@@ -16,6 +16,6 @@ pkgbase = aula-f87
 	optdepends = libadwaita: GTK frontend
 	optdepends = python-cairo: GTK frontend
 	source = aula-f87-0.1.0.tar.gz::https://github.com/leetrat/aula-f87-rgb/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = ee420db309752639faa873e1d9b8016ee8e9b559d7ee5822513c3aa7f66dc1aa
 
 pkgname = aula-f87
