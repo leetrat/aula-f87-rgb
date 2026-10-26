@@ -19,10 +19,10 @@ optional GTK4/libadwaita frontend is included for visual editing.
 - Write persistent per-key colours (including a base colour plus overrides).
 - Turn the lighting off.
 - A native GTK4/libadwaita frontend with an animated keyboard preview, effect
-  controls, click-and-drag per-key painting, device settings, backup/restore,
+  controls, click-and-drag per-key painting, device settings, named profiles,
   and factory reset.
 - Set the wireless sleep timer and debounce time.
-- Back up and restore the 10 configuration frames.
+- Back up and restore the 10 configuration frames from the CLI.
 - Restore factory defaults.
 - Detect the 2.4 GHz receiver by its HID report descriptor instead of assuming a
   fixed `/dev/hidrawN` number.
@@ -117,7 +117,8 @@ Back up and restore:
 ```
 
 The pre-change configuration from the first test session is saved at
-`backups/f87-original-2026-10-26.json`.
+`backups/f87-original-2026-10-26.json` and is also available to the frontend as
+`profiles/original.json`.
 
 Timing settings (2.4 GHz only):
 
@@ -187,8 +188,7 @@ The included `.desktop` file uses `Exec=aula-f87-gui`, matching the command on
 - **Per-key** — pick a colour, click or drag across keycaps, right-click to
   erase, fill or clear the layout, and save it as custom mode.
 - **Device** — read the current effect and timing, set the wireless sleep timer
-  and debounce, back up or restore the configuration, and reset to factory
-  defaults.
+  and debounce, switch named profiles, and reset to factory defaults.
 
 HID operations run on worker threads, so the preview keeps animating while a
 write is in progress.  The window refuses new operations until the previous one
@@ -201,14 +201,18 @@ finishes.
 - If the wireless keyboard has gone to sleep while the receiver stayed
   connected, press a key to wake the keyboard and click the refresh button in
   the header.  The sleep timer can be changed on the Device page.
-- Backups go to `~/aula-f87/backups/aula-f87-YYYYMMDD-HHMMSS.json` by default.
-  Set `AULA_F87_BACKUP_DIR` to use a different directory.
+- Use **Save as…** on the Device page to name the current onboard
+  configuration, choose it in the drop-down, then click **Load**.  **Delete**
+  removes the local profile file only.
+- Profiles go to `~/aula-f87/profiles/NAME.json` by default.  Set
+  `AULA_F87_PROFILE_DIR` to use a different directory.  These are the same
+  JSON frames used by the CLI `backup` and `restore` commands.
 - Per-key colours and the palette are write-only on this keyboard.  The
   painting canvas therefore starts empty, and the preview uses the pending
   target colour rather than attempting to read the stored colour back.
-- Restoring the newest GUI backup restores the configuration frames, but not
-  the palette or per-key data; re-apply a custom colour or per-key layout after
-  restoring if needed.  (The same limitation applies to the CLI.)
+- Loading a profile restores the configuration frames, but not the palette or
+  per-key data; re-apply a custom colour or per-key layout after loading if
+  needed.  (The same limitation applies to the CLI.)
 
 ### AUR
 
@@ -240,7 +244,7 @@ retain the requested effect or parameters.
 
 ## Notes and limitations
 
-- The separate palette is not readable by the known protocol.  A backup stores
+- The separate palette is not readable by the known protocol.  A profile stores
   the 10 configuration frames but not the RGB palette.  Restoring an effect
   that uses a custom colour therefore requires re-applying that colour with
   `static` or `effect --color`.

@@ -12,9 +12,9 @@ import colorsys
 import json
 import math
 import os
+import re
 import sys
 import threading
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -45,8 +45,8 @@ from .keys import LAYOUT_KEYS, LAYOUT_ROWS, KeySpec
 
 
 APP_ID = "io.github.aula_f87.AulaF87"
-BACKUP_DIR = Path(
-    os.environ.get("AULA_F87_BACKUP_DIR", str(Path.home() / "aula-f87" / "backups"))
+PROFILE_DIR = Path(
+    os.environ.get("AULA_F87_PROFILE_DIR", str(Path.home() / "aula-f87" / "profiles"))
 )
 
 EFFECT_CHOICES = tuple(
@@ -189,17 +189,55 @@ def apply_debounce(milliseconds: int) -> dict[str, object]:
         keyboard.close()
 
 
-def backup_now() -> Path:
+def profile_path(name: str) -> Path:
+    cleaned = name.strip()
+    if not cleaned:
+        raise AulaError("profile name cannot be empty")
+    slug = re.sub(r"[^\w.-]+", "-", cleaned).strip("-._").lower()
+    if not slug:
+        raise AulaError("profile name must contain letters or numbers")
+    return PROFILE_DIR / f"{slug}.json"
+
+
+def _profile_name(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return path.stem
+    if isinstance(data, dict):
+        name = data.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return path.stem
+
+
+def list_profiles() -> list[tuple[Path, str]]:
+    try:
+        paths = sorted(
+            PROFILE_DIR.glob("*.json"),
+            key=lambda item: item.name.casefold(),
+        )
+    except OSError:
+        return []
+    profiles = [(path, _profile_name(path)) for path in paths]
+    profiles.sort(key=lambda item: item[1].casefold())
+    return profiles
+
+
+def save_profile(name: str) -> Path:
+    display_name = name.strip()
+    path = profile_path(display_name)
     keyboard = open_keyboard()
     try:
         if not isinstance(keyboard, WirelessKeyboard):
             raise UnsupportedSetting(
-                "configuration backups are available only on the 2.4 GHz receiver"
+                "profiles are available only on the 2.4 GHz receiver"
             )
         config = keyboard.read_config()
         payload: dict[str, object] = {
             "format": "aula-f87-config-v1",
             "protocol": "wireless",
+            "name": display_name,
             "device": {
                 "path": keyboard.info.path,
                 "vid": f"{keyboard.info.vid:04X}",
@@ -211,66 +249,63 @@ def backup_now() -> Path:
     finally:
         keyboard.close()
 
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    path = BACKUP_DIR / f"aula-f87-{datetime.now():%Y%m%d-%H%M%S}.json"
-    path.write_text(
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    os.replace(temporary, path)
     return path
 
 
-def latest_backup() -> Optional[Path]:
-    try:
-        candidates = sorted(
-            BACKUP_DIR.glob("aula-f87-*.json"),
-            key=lambda item: item.stat().st_mtime,
-        )
-    except OSError:
-        return None
-    return candidates[-1] if candidates else None
-
-
-def load_backup(path: Path) -> list[bytes]:
+def load_profile(path: Path) -> list[bytes]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise AulaError(f"cannot read {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
-        raise AulaError(f"invalid backup JSON in {path}: {exc}") from exc
+        raise AulaError(f"invalid profile JSON in {path}: {exc}") from exc
 
     if not isinstance(data, dict) or data.get("format") != "aula-f87-config-v1":
-        raise AulaError("this is not an aula-f87-config-v1 backup")
+        raise AulaError("this is not an aula-f87-config-v1 profile")
     if data.get("protocol") != "wireless":
-        raise AulaError("only wireless configuration backups can be restored")
+        raise AulaError("only wireless profiles can be loaded")
     frames = data.get("frames")
     if not isinstance(frames, list) or len(frames) != protocol.WIRELESS_CONFIG_FRAMES:
-        raise AulaError("backup does not contain 10 configuration frames")
+        raise AulaError("profile does not contain 10 configuration frames")
 
     result: list[bytes] = []
     for index, item in enumerate(frames):
         if not isinstance(item, str):
-            raise AulaError(f"backup frame {index} is not a string")
+            raise AulaError(f"profile frame {index} is not a string")
         try:
             frame = bytes.fromhex(item)
         except ValueError as exc:
-            raise AulaError(f"backup frame {index} is not valid hex") from exc
+            raise AulaError(f"profile frame {index} is not valid hex") from exc
         if len(frame) != 20:
-            raise AulaError(f"backup frame {index} is {len(frame)} bytes, expected 20")
+            raise AulaError(f"profile frame {index} is {len(frame)} bytes, expected 20")
         result.append(frame)
     return result
 
 
-def restore_backup(path: Path) -> dict[str, object]:
-    frames = load_backup(path)
+def restore_profile(path: Path) -> dict[str, object]:
+    frames = load_profile(path)
     keyboard = open_keyboard()
     try:
         if not isinstance(keyboard, WirelessKeyboard):
             raise UnsupportedSetting(
-                "configuration restore is available only on the 2.4 GHz receiver"
+                "profile loading is available only on the 2.4 GHz receiver"
             )
         return keyboard.restore_config(frames)
     finally:
         keyboard.close()
+
+
+def delete_profile(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise AulaError(f"cannot delete {path}: {exc}") from exc
 
 
 def factory_reset() -> dict[str, object]:
@@ -584,6 +619,8 @@ class AulaWindow(Adw.ApplicationWindow):
         self._syncing = False
         self._tick_id: Optional[int] = None
         self._reset_dialog: Optional[Adw.AlertDialog] = None
+        self._profile_dialog: Optional[Adw.AlertDialog] = None
+        self._profile_entries: list[tuple[Path, str]] = []
 
         self.set_title("AULA F87 Pro")
         self.set_default_size(1180, 800)
@@ -935,33 +972,48 @@ class AulaWindow(Adw.ApplicationWindow):
         timing.add(debounce_row)
         page.add(timing)
 
-        backup = Adw.PreferencesGroup(title="Backups")
-        self.backup_button = Gtk.Button(label="Back up")
-        self.backup_button.set_valign(Gtk.Align.CENTER)
-        self.backup_button.connect("clicked", self._backup_now)
-        backup_row = Adw.ActionRow(
-            title="Back up current profile",
-            subtitle="Save the 10 onboard configuration frames as JSON",
+        profiles = Adw.PreferencesGroup(title="Profiles")
+        self.profile_row_dropdown = Adw.ActionRow(
+            title="Saved profiles",
+            subtitle="Choose a profile, then load or delete it",
         )
-        backup_row.add_suffix(self.backup_button)
-        backup.add(backup_row)
+        self.profile_dropdown = Gtk.DropDown.new_from_strings(["No saved profiles"])
+        self.profile_dropdown.set_valign(Gtk.Align.CENTER)
+        self.profile_dropdown.set_sensitive(False)
+        self.profile_dropdown.connect("notify::selected", self._on_profile_selected)
+        self.profile_row_dropdown.add_suffix(self.profile_dropdown)
+        profiles.add(self.profile_row_dropdown)
 
-        self.restore_button = Gtk.Button(label="Restore latest")
-        self.restore_button.set_valign(Gtk.Align.CENTER)
-        self.restore_button.connect("clicked", self._restore_latest)
-        self.restore_row = Adw.ActionRow(
-            title="Restore latest backup",
-            subtitle="No frontend backups yet",
-        )
-        self.restore_row.add_suffix(self.restore_button)
-        backup.add(self.restore_row)
+        profile_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.profile_save_button = Gtk.Button(label="Save as…")
+        self.profile_save_button.set_valign(Gtk.Align.CENTER)
+        self.profile_save_button.connect("clicked", self._save_profile)
+        profile_actions.append(self.profile_save_button)
 
-        backup_folder_row = Adw.ActionRow(
-            title="Backup folder",
-            subtitle=str(BACKUP_DIR),
+        self.profile_load_button = Gtk.Button(label="Load")
+        self.profile_load_button.set_valign(Gtk.Align.CENTER)
+        self.profile_load_button.connect("clicked", self._apply_selected_profile)
+        profile_actions.append(self.profile_load_button)
+
+        self.profile_delete_button = Gtk.Button(label="Delete")
+        self.profile_delete_button.add_css_class("destructive-action")
+        self.profile_delete_button.set_valign(Gtk.Align.CENTER)
+        self.profile_delete_button.connect("clicked", self._delete_selected_profile)
+        profile_actions.append(self.profile_delete_button)
+
+        actions_row = Adw.ActionRow(
+            title="Profile actions",
+            subtitle="Save the current onboard configuration under a new name",
         )
-        backup.add(backup_folder_row)
-        page.add(backup)
+        actions_row.add_suffix(profile_actions)
+        profiles.add(actions_row)
+
+        profile_folder_row = Adw.ActionRow(
+            title="Profile folder",
+            subtitle=str(PROFILE_DIR),
+        )
+        profiles.add(profile_folder_row)
+        page.add(profiles)
 
         danger = Adw.PreferencesGroup(title="Danger zone")
         self.reset_button = Gtk.Button(label="Reset")
@@ -1081,17 +1133,17 @@ class AulaWindow(Adw.ApplicationWindow):
         self.apply_effect_button.set_sensitive(connected and idle)
         self.off_button.set_sensitive(connected and idle)
         self.perkey_apply_button.set_sensitive(connected and idle)
-        self.backup_button.set_sensitive(connected and idle)
 
         for widget in (
             self.sleep_spin,
             self.sleep_apply,
             self.debounce_spin,
             self.debounce_apply,
-            self.restore_button,
             self.reset_button,
         ):
             widget.set_sensitive(wireless and idle)
+
+        self._update_profile_buttons()
 
     def _set_pill(self, text: str, state: Optional[bool]) -> None:
         self.connection_pill.set_text(text)
@@ -1243,11 +1295,7 @@ class AulaWindow(Adw.ApplicationWindow):
             self._update_preview_caption()
             self.effect_preview.queue_draw()
 
-        latest = latest_backup()
-        if latest is None:
-            self.restore_row.set_subtitle("No frontend backups yet")
-        else:
-            self.restore_row.set_subtitle(f"Newest: {latest.name}")
+        self._refresh_profiles()
 
     def _update_preview_caption(self) -> None:
         effect = EFFECT_CHOICES_BY_ID.get(self.state.target_effect_id)
@@ -1520,42 +1568,186 @@ class AulaWindow(Adw.ApplicationWindow):
         self._apply_summary(result, sync_target=True)
         self._toast(message)
 
-    def _backup_now(self, *_args: object) -> None:
+    def _refresh_profiles(self, select: Optional[Path] = None) -> None:
+        if select is None:
+            selected = self._selected_profile()
+            select = selected[0] if selected is not None else None
+        entries = list_profiles()
+        self._profile_entries = entries
+        names = [name for _path, name in entries] or ["No saved profiles"]
+        self.profile_dropdown.set_model(Gtk.StringList.new(names))
+        index = 0
+        if select is not None:
+            for candidate, (_path, _name) in enumerate(entries):
+                if _path == select:
+                    index = candidate
+                    break
+        self.profile_dropdown.set_selected(index)
+        self._update_profile_buttons()
+
+    def _selected_profile(self) -> Optional[tuple[Path, str]]:
+        index = self.profile_dropdown.get_selected()
+        if 0 <= index < len(self._profile_entries):
+            return self._profile_entries[index]
+        return None
+
+    def _profile_display_name(self, path: Path) -> str:
+        for candidate, name in self._profile_entries:
+            if candidate == path:
+                return name
+        return path.stem
+
+    def _update_profile_buttons(self) -> None:
+        wireless = (
+            self.state.connected
+            and self.state.summary.get("protocol") == "wireless"
+        )
+        idle = not self._busy
+        has_profiles = bool(self._profile_entries)
+        selected = self._selected_profile() is not None
+        self.profile_dropdown.set_sensitive(has_profiles and idle)
+        self.profile_save_button.set_sensitive(wireless and idle)
+        self.profile_load_button.set_sensitive(wireless and idle and selected)
+        self.profile_delete_button.set_sensitive(idle and selected)
+
+    def _on_profile_selected(self, *_args: object) -> None:
+        self._update_profile_buttons()
+
+    def _save_profile(self, *_args: object) -> None:
         if not self.state.connected:
             self._toast("No keyboard is connected.")
             return
+        if self.state.summary.get("protocol") != "wireless":
+            self._toast("Profiles are available only on the 2.4 GHz receiver.")
+            return
+        dialog = Adw.AlertDialog.new(
+            "Save profile",
+            "Save the current onboard configuration under a name.",
+        )
+        entry = Gtk.Entry()
+        entry.set_placeholder_text("Profile name")
+        entry.set_activates_default(True)
+        entry.set_margin_top(6)
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_save_profile_response, entry)
+        self._profile_dialog = dialog
+        dialog.present(self)
+        entry.grab_focus()
+
+    def _on_save_profile_response(
+        self, _dialog: Adw.AlertDialog, response: str, entry: Gtk.Entry
+    ) -> None:
+        self._profile_dialog = None
+        if response != "save":
+            return
+        name = entry.get_text().strip()
+        try:
+            path = profile_path(name)
+        except AulaError as exc:
+            self._toast(str(exc))
+            return
+        if path.exists():
+            self._confirm_replace_profile(name, path)
+            return
+        self._do_save_profile(name)
+
+    def _confirm_replace_profile(self, name: str, path: Path) -> None:
+        dialog = Adw.AlertDialog.new(
+            "Replace profile?",
+            f'A profile named "{name}" already exists at {path.name}.',
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("replace", "Replace")
+        dialog.set_response_appearance("replace", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_replace_profile_response, name)
+        self._profile_dialog = dialog
+        dialog.present(self)
+
+    def _on_replace_profile_response(
+        self, _dialog: Adw.AlertDialog, response: str, name: str
+    ) -> None:
+        self._profile_dialog = None
+        if response == "replace":
+            self._do_save_profile(name)
+
+    def _do_save_profile(self, name: str) -> None:
         self._run_async(
-            "Backing up the configuration",
-            backup_now,
-            self._backup_done,
+            f"Saving profile {name}",
+            lambda: save_profile(name),
+            self._profile_saved,
         )
 
-    def _backup_done(self, result: object) -> None:
+    def _profile_saved(self, result: object) -> None:
         path = Path(result) if isinstance(result, (str, os.PathLike)) else None
-        self._update_status_labels()
+        self._refresh_profiles(select=path)
         if path is not None:
-            self._toast(f"Backup saved: {path.name}")
+            self._toast(f"Profile saved: {self._profile_display_name(path)}")
         else:
-            self._toast("Backup saved.")
+            self._toast("Profile saved.")
 
-    def _restore_latest(self, *_args: object) -> None:
+    def _apply_selected_profile(self, *_args: object) -> None:
         if not self.state.connected:
             self._toast("No keyboard is connected.")
             return
-        path = latest_backup()
-        if path is None:
-            self._toast("No frontend backups yet. Use Back up first.")
+        if self.state.summary.get("protocol") != "wireless":
+            self._toast("Profiles are available only on the 2.4 GHz receiver.")
             return
+        selected = self._selected_profile()
+        if selected is None:
+            self._toast("No profile selected.")
+            return
+        path, name = selected
         self._run_async(
-            f"Restoring {path.name}",
-            lambda: restore_backup(path),
-            self._restore_done,
+            f"Loading profile {name}",
+            lambda: restore_profile(path),
+            lambda result: self._profile_loaded(result, name),
         )
 
-    def _restore_done(self, result: object) -> None:
+    def _profile_loaded(self, result: object, name: str) -> None:
         self._apply_summary(result, sync_target=True)
-        summary = self.state.summary
-        self._toast(f"Restored the saved configuration ({summary.get('effect', 'unknown')}).")
+        effect = self.state.summary.get("effect", "unknown")
+        self._toast(f"Loaded profile: {name} ({effect}).")
+
+    def _delete_selected_profile(self, *_args: object) -> None:
+        selected = self._selected_profile()
+        if selected is None:
+            self._toast("No profile selected.")
+            return
+        path, name = selected
+        dialog = Adw.AlertDialog.new(
+            "Delete profile?",
+            f'Delete "{name}" from this computer? This cannot be undone.',
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_delete_profile_response, path)
+        self._profile_dialog = dialog
+        dialog.present(self)
+
+    def _on_delete_profile_response(
+        self, _dialog: Adw.AlertDialog, response: str, path: Path
+    ) -> None:
+        self._profile_dialog = None
+        if response != "delete":
+            return
+        name = self._profile_display_name(path)
+        try:
+            delete_profile(path)
+        except AulaError as exc:
+            self._toast(str(exc), timeout=7)
+            return
+        self._refresh_profiles()
+        self._toast(f"Profile deleted: {name}")
 
     def _confirm_reset(self, *_args: object) -> None:
         if not self.state.connected:
@@ -1564,8 +1756,8 @@ class AulaWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog.new(
             "Factory reset?",
             "This overwrites the current effect, colours, timing, and per-key data "
-            "with the firmware defaults. The current profile cannot be recovered "
-            "unless you have a backup.",
+            "with the firmware defaults. Save the current profile first if you "
+            "want to switch back to it later.",
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("reset", "Reset")
