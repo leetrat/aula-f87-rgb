@@ -204,10 +204,14 @@ finishes.
 - Use **Save as…** on the Device page to name the current onboard
   configuration, choose it in the drop-down, then click **Load**.  **Delete**
   removes the local profile file only.
-- Profiles go to `~/aula-f87/profiles/NAME.json` by default.  Set
-  `AULA_F87_PROFILE_DIR` to use a different directory.  They use the same base
-  JSON format as the CLI `backup` and `restore` commands, with optional
-  frontend-only fields for per-key and palette data.
+- Profiles go to `$XDG_CONFIG_HOME/aula-f87-rgb/NAME.json` by default, which is
+  `~/.config/aula-f87-rgb` when `XDG_CONFIG_HOME` is unset.  Set
+  `AULA_F87_PROFILE_DIR` to use a different directory.  On first start, any
+  profiles in the old `~/aula-f87/profiles` directory are copied into the new
+  location (without overwriting existing files); the old directory is left
+  untouched.  Profiles use the same base JSON format as the CLI `backup` and
+  `restore` commands, with optional frontend-only fields for per-key and
+  palette data.
 - Per-key colours and the palette are write-only on this keyboard.  The
   painting canvas therefore starts empty, and the preview uses the pending
   target colour rather than attempting to read the stored colour back.

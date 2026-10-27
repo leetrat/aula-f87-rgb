@@ -42,12 +42,12 @@ from .device import (
     open_keyboard,
 )
 from .keys import LAYOUT_KEYS, LAYOUT_ROWS, KeySpec
+from .paths import default_profile_dir, legacy_profile_dir, migrate_legacy_profiles
 
 
 APP_ID = "io.github.aula_f87.AulaF87"
-PROFILE_DIR = Path(
-    os.environ.get("AULA_F87_PROFILE_DIR", str(Path.home() / "aula-f87" / "profiles"))
-)
+PROFILE_DIR = default_profile_dir()
+LEGACY_PROFILE_DIR = legacy_profile_dir()
 
 EFFECT_CHOICES = tuple(
     effect for effect in protocol.EFFECTS if effect.id in protocol.WIRELESS_EFFECT_IDS
@@ -189,6 +189,12 @@ def apply_debounce(milliseconds: int) -> dict[str, object]:
         keyboard.close()
 
 
+def _migrate_legacy_profiles() -> None:
+    if os.environ.get("AULA_F87_PROFILE_DIR"):
+        return
+    migrate_legacy_profiles(PROFILE_DIR, LEGACY_PROFILE_DIR)
+
+
 def profile_path(name: str) -> Path:
     cleaned = name.strip()
     if not cleaned:
@@ -212,6 +218,7 @@ def _profile_name(path: Path) -> str:
 
 
 def list_profiles() -> list[tuple[Path, str]]:
+    _migrate_legacy_profiles()
     try:
         paths = sorted(
             PROFILE_DIR.glob("*.json"),
@@ -308,6 +315,7 @@ def save_profile(
 ) -> Path:
     display_name = name.strip()
     path = profile_path(display_name)
+    _migrate_legacy_profiles()
     keyboard = open_keyboard()
     try:
         if not isinstance(keyboard, WirelessKeyboard):
