@@ -239,6 +239,11 @@ The wireless protocol uses 20-byte reports with report id `0x13`:
 4. per-key write: command `0x02`, subcommand `0x1C`, 28 frames
 5. save: command `0x0A`, subcommand `0x01`
 
+Each colour-capable effect reads its custom colour from its own palette frame.
+Fixed On uses frame 1, while the other effects use the frame assigned by the OEM
+configuration (for example, Breathing uses frame 3).  Writing only frame 1
+leaves the other effects showing their built-in default colours.
+
 The save frame is what makes the change survive unplugging, power-cycling, and
 using the keyboard wirelessly.  Every write is echoed by the receiver and is
 followed by a configuration read-back.  The tool refuses to continue if a
