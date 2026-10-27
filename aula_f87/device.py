@@ -410,7 +410,11 @@ class WirelessKeyboard:
             uses_custom_color=custom_color,
         )
         self._transmit(writes)
-        self._transmit(protocol.palette_frames(color if custom_color else None))
+        self._transmit(
+            protocol.palette_frames(
+                color if custom_color else None, effect_id=effect_id
+            )
+        )
         verified = self._save_and_read()
         if verified[0][15] != effect_id:
             raise VerificationError(
