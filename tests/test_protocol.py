@@ -68,49 +68,11 @@ class WirelessProtocolTests(unittest.TestCase):
         for frame in frames:
             self.assertEqual(frame[19], protocol.checksum(frame))
 
-    def test_palette_puts_fixed_on_colour_in_frame_one(self) -> None:
-        frames = protocol.palette_frames((0x8A, 0x5C, 0xF6), effect_id=1)
+    def test_palette_puts_custom_colour_in_frame_one(self) -> None:
+        frames = protocol.palette_frames((0x8A, 0x5C, 0xF6))
         self.assertEqual(len(frames), protocol.PALETTE_FRAMES)
         self.assertEqual(frames[1][12:15], bytes((0x8A, 0x5C, 0xF6)))
         self.assertEqual(frames[36][4:9], bytes((0x08, 0x00, 0x00, 0x5A, 0xA5)))
-
-    def test_palette_puts_effect_colour_in_its_own_frame(self) -> None:
-        colour = (0x8A, 0x5C, 0xF6)
-        frames = protocol.palette_frames(colour, effect_id=2)
-        self.assertEqual(frames[3][5:8], bytes(colour))
-        # Frame 1 keeps its fixed-on default instead of receiving the colour.
-        self.assertEqual(frames[1][12:15], bytes((0xFF, 0x00, 0x00)))
-
-        frames = protocol.palette_frames(colour, effect_id=18)
-        self.assertEqual(frames[29][5:8], bytes(colour))
-
-    def test_effect_palette_mapping_covers_every_colour_effect(self) -> None:
-        for effect in protocol.EFFECTS:
-            if effect.supports_color:
-                self.assertIn(effect.id, protocol.PALETTE_FRAME_BY_EFFECT)
-        self.assertEqual(
-            protocol.PALETTE_FRAME_BY_EFFECT,
-            {
-                1: 1,
-                2: 3,
-                3: 2,
-                4: 19,
-                5: 15,
-                6: 13,
-                7: 20,
-                8: 16,
-                9: 18,
-                10: 5,
-                11: 7,
-                12: 17,
-                13: 12,
-                14: 8,
-                15: 28,
-                16: 30,
-                17: 14,
-                18: 29,
-            },
-        )
 
     def test_per_key_planes_and_trailer(self) -> None:
         frames = protocol.per_key_frames({0: (10, 20, 30), 125: (40, 50, 60)})

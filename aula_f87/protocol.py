@@ -77,31 +77,6 @@ EFFECTS: tuple[Effect, ...] = (
 
 EFFECT_BY_ID = {effect.id: effect for effect in EFFECTS}
 
-# Each colour-capable hardware effect reads its custom colour from a different
-# palette frame.  The mapping comes from the OEM configuration (LedOptN in
-# Dev/kb/F87PRO/KB.ini); Fixed On is special because frame 1 also stores its
-# on/off state and colour at a different offset.
-PALETTE_FRAME_BY_EFFECT = {
-    1: 1,
-    2: 3,
-    3: 2,
-    4: 19,
-    5: 15,
-    6: 13,
-    7: 20,
-    8: 16,
-    9: 18,
-    10: 5,
-    11: 7,
-    12: 17,
-    13: 12,
-    14: 8,
-    15: 28,
-    16: 30,
-    17: 14,
-    18: 29,
-}
-
 
 def _normalise_effect_name(value: str) -> str:
     return "".join(ch for ch in value.lower() if ch.isalnum())
@@ -225,28 +200,17 @@ def update_effect(
     return [bytes(item) for item in output]
 
 
-def palette_frames(
-    color: Optional[tuple[int, int, int]], effect_id: int = 1
-) -> list[bytes]:
-    """Build all 37 palette frames, placing *color* in the active effect's frame.
-
-    Fixed On (effect 1) keeps its colour at payload offset 8 and uses offset 12
-    as its on/off flag.  Every other effect reads the first colour triplet of
-    its own palette frame, so writing only frame 1 leaves those effects with
-    their default colours.
-    """
-
+def palette_frames(color: Optional[tuple[int, int, int]]) -> list[bytes]:
     a = [0x0E, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
     b = [0x0E, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00]
     c = [0x0E, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00]
-    target_sequence = PALETTE_FRAME_BY_EFFECT.get(effect_id, 1)
     frames: list[bytes] = []
     for sequence in range(PALETTE_FRAMES):
         if sequence == 0:
             payload = [0x0E] + [0] * 14
         elif sequence == 1:
             payload = [0x0E, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0, 0, 0, 0xFF, 0, 0]
-            if color is not None and target_sequence == 1:
+            if color is not None:
                 payload[8] = color[0]
                 payload[9] = color[1]
                 payload[10] = color[2]
@@ -257,8 +221,6 @@ def palette_frames(
             payload = [0x08, 0x00, 0x00, 0x5A, 0xA5] + [0] * 10
         else:
             payload = [0x0E] + [0] * 14
-        if color is not None and sequence == target_sequence and sequence != 1:
-            payload[1:4] = list(color)
         frames.append(frame(CMD_COLOR, SUB_PALETTE, sequence, payload))
     return frames
 
