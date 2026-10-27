@@ -255,7 +255,10 @@ def custom_mode_config(config: list[bytes]) -> list[bytes]:
         item[1] = CMD_WRITE
         if index == 0:
             item[8] = 0x01
-            item[14] = 0x00
+            # Config block offset 9: the OEM self-define write sets this flag
+            # together with effect 21 so the firmware treats the stored
+            # per-key map as the active custom mode.
+            item[14] = 0x01
             item[15] = CUSTOM_EFFECT
             item[17] = 0x01
         item[19] = checksum(item)

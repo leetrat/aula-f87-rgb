@@ -31,6 +31,7 @@ class WirelessProtocolTests(unittest.TestCase):
             [protocol.read_request(), protocol.save_frame()]
             + protocol.palette_frames((1, 2, 3))
             + protocol.per_key_frames({0: (255, 0, 0)})
+            + protocol.custom_mode_config(BASE_CONFIG)
             + protocol.factory_config_frames()
         )
         for frame in frames:
@@ -52,6 +53,18 @@ class WirelessProtocolTests(unittest.TestCase):
         self.assertEqual(frames[0][17], 0x01)
         self.assertEqual(frames[4][7], 3)  # effect 1 brightness location
         self.assertEqual(frames[4][8], 0x00)
+        self.assertEqual(frames[0][14], 0x00)  # normal effects clear the custom flag
+        for frame in frames:
+            self.assertEqual(frame[19], protocol.checksum(frame))
+
+    def test_custom_mode_sets_oem_custom_flag(self) -> None:
+        frames = protocol.custom_mode_config(BASE_CONFIG)
+        self.assertEqual(frames[0][8], 0x01)
+        self.assertEqual(frames[0][14], 0x01)  # config block offset 9
+        self.assertEqual(frames[0][15], protocol.CUSTOM_EFFECT)
+        self.assertEqual(frames[0][17], 0x01)
+        for original, changed in zip(BASE_CONFIG[1:], frames[1:]):
+            self.assertEqual(changed[2:19], original[2:19])
         for frame in frames:
             self.assertEqual(frame[19], protocol.checksum(frame))
 

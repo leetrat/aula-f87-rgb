@@ -243,6 +243,7 @@ def _effect_summary_from_wireless(config: list[bytes], include_raw: bool = False
     summary: dict[str, object] = {
         "effect_id": effect_id,
         "effect": protocol.effect_name(effect_id),
+        "custom": config[0][14] == 0x01,
         "brightness": brightness,
         "speed": speed,
         "colorful": colorful,
@@ -439,9 +440,10 @@ class WirelessKeyboard:
         self._transmit(protocol.custom_mode_config(base))
         self._transmit(protocol.per_key_frames(colors))
         verified = self._save_and_read()
-        if verified[0][15] != protocol.CUSTOM_EFFECT:
+        if verified[0][15] != protocol.CUSTOM_EFFECT or verified[0][14] != 0x01:
             raise VerificationError(
-                "the keyboard replied, but did not enter per-key colour mode"
+                "the keyboard replied, but did not retain per-key colour mode "
+                "or its custom-mode flag"
             )
         summary = _effect_summary_from_wireless(verified)
         summary["per_key_count"] = len(colors)

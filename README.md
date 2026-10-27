@@ -245,6 +245,12 @@ followed by a configuration read-back.  The tool refuses to continue if a
 packet is not echoed and reports a verification error if the keyboard does not
 retain the requested effect or parameters.
 
+Per-key mode uses effect 21 and the OEM custom flag in frame 0 (config block
+offset 9, report byte 14).  The OEM self-define write sets this flag; leaving it
+clear can make the firmware treat the custom map as an ordinary effect, which
+allows a brightness shortcut to replace the custom colouring.  The tool now
+writes and verifies the flag.
+
 ## Notes and limitations
 
 - The separate palette is not readable by the known protocol.  A frontend
